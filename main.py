@@ -1,8 +1,60 @@
 import json
 import nltk 
+from sklearn.model_selection import train_test_split
+import numpy as np
+import sklearn_crfsuite
+import pickle
+from sklearn_crfsuite import metrics
+from  collections import Counter
 
 entity_labels = ["anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
 locations = ["title","abstract"]
+
+def word2features(sent, i):
+    word = sent[i][0]
+    postag = sent[i][1]
+
+    features = {
+        'bias': 1.0,
+        'word.lower()': word.lower(),
+        'word[-3:]': word[-3:],
+        'word[-2:]': word[-2:],
+        'word.isupper()': word.isupper(),
+        'word.istitle()': word.istitle(),
+        'word.isdigit()': word.isdigit(),
+        'postag': postag,
+        'postag[:2]': postag[:2],
+    }
+    if i > 0:
+        word1 = sent[i-1][0]
+        postag1 = sent[i-1][1]
+        features.update({
+            '-1:word.lower()': word1.lower(),
+            '-1:word.istitle()': word1.istitle(),
+            '-1:word.isupper()': word1.isupper(),
+            '-1:postag': postag1,
+            '-1:postag[:2]': postag1[:2],
+        })
+    else:
+        features['BOS'] = True
+
+    if i < len(sent)-1:
+        word1 = sent[i+1][0]
+        postag1 = sent[i+1][1]
+        features.update({
+            '+1:word.lower()': word1.lower(),
+            '+1:word.istitle()': word1.istitle(),
+            '+1:word.isupper()': word1.isupper(),
+            '+1:postag': postag1,
+            '+1:postag[:2]': postag1[:2],
+        })
+    else:
+        features['EOS'] = True
+
+    return features
+
+def sent2features(sent):
+    return [word2features(sent, i) for i in range(len(sent))]
 class Document:
     def __init__(self,id,title,abstract,year,journal,authors):
         self._id = id
@@ -148,9 +200,67 @@ class Parser:
         return str(self._obj)
 
 p = Parser()
-p.decode_doc("test.json")
 
+load = True
 
-# p.docs[0].ground_trouth()
-for elem in p.docs[0].ner:
-    print(elem)
+if load == True:
+    obj=pickle.load(open("model.pickle",'rb'))
+    text = "Hypothesis of a potential BrainBiota and its relation to CNS autoimmune inflammation, eat by rodents and used by antidepressants."
+    tokens = nltk.word_tokenize(text)
+    words = nltk.pos_tag(tokens)
+
+    def print_state_features(state_features):
+        for (attr, label), weight in state_features:
+            print("%0.6f %-8s %s" % (weight, label, attr))
+
+    print("Top positive:")
+    print_state_features(Counter(obj.state_features_).most_common(30))
+
+    print("\nTop negative:")
+    print_state_features(Counter(obj.state_features_).most_common()[-30:])
+    feat = obj.state_features_
+    sorted=dict(sorted(feat.items(),key=lambda item: item[1]))
+    #print(sorted)
+    print(sent2features(words))
+    print(obj.predict([sent2features(words)]))
+else:
+    documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
+    X = []
+    Y = []
+    for docpath in documents:
+        p.decode_doc(docpath)
+        for doc in p.docs:
+            x_temp = []
+            y_temp = []
+            for i in range(0,len(doc.ner)):
+                x_temp.append(word2features(doc.ner,i))
+            for elem in doc.ner:
+                y_temp.append(elem[2])
+            X.append(x_temp)
+            Y.append(y_temp)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
+
+    crf = sklearn_crfsuite.CRF(algorithm='lbfgs',
+                            c1=0.1,
+                            c2=0.1,
+                            max_iterations=100,
+                            # min_freq=30,
+                            all_possible_transitions=True,
+                            verbose=True)
+
+    crf.fit(X_train, y_train)
+
+    pickle.dump(crf,open("model.pickle",'wb+'))
+    text = "Hypothesis of a potential BrainBiota and its relation to CNS autoimmune inflammation."
+    tokens = nltk.word_tokenize(text)
+    words = nltk.pos_tag(tokens)
+
+    # print(sent2features(words))
+    #print(crf.predict([sent2features(words)]))
+
+    print(crf.predict_marginals([sent2features(words)]))
+    print(crf.predict([sent2features(words)]))
+    feat=crf.state_features_
+    sorted=dict(sorted(feat.items(),key=lambda item: item[1]))
+    print(sorted)
