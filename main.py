@@ -6,8 +6,11 @@ import sklearn_crfsuite
 import pickle
 from sklearn_crfsuite import metrics
 from  collections import Counter
+import matplotlib.pyplot as plt
+import sklearn.metrics
+import sklearn_crfsuite.metrics 
 
-entity_labels = ["anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
+entity_labels = ["O","anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
 locations = ["title","abstract"]
 
 def word2features(sent, i):
@@ -21,7 +24,9 @@ def word2features(sent, i):
         'word[-2:]': word[-2:],
         'word.isupper()': word.isupper(),
         'word.istitle()': word.istitle(),
+        'word.hasCapital()':word[0].capitalize() == word[0],
         'word.isdigit()': word.isdigit(),
+        #'word.hasBioma()': "bio" in word,
         'postag': postag,
         'postag[:2]': postag[:2],
     }
@@ -52,6 +57,20 @@ def word2features(sent, i):
         features['EOS'] = True
 
     return features
+def explain(sent_feat,ents_labels):
+        for index,feature in enumerate(sent_feat):
+            print(f"Token n {index}")
+            for label in ents_labels:
+                print(label)
+                sum = 0
+                for entry,value in feature.items():
+                    find = f"{entry}:{value}"
+                    for elem in feat:
+                        if find == elem[0][0] and elem[0][1] == label:
+                            print(elem[0][0],elem[1])
+                            sum+=elem[1]
+                print(sum)
+
 
 def sent2features(sent):
     return [word2features(sent, i) for i in range(len(sent))]
@@ -195,64 +214,81 @@ class Parser:
             
             # At the end of the document parsing add it to the docs list
             self.docs.append(d)
+    def prepare_crf(self,documents):
+        X = []
+        Y = []
+        for docpath in documents:
+            self.decode_doc(docpath)
+            for doc in p.docs:
+                x_temp = []
+                y_temp = []
+                for i in range(0,len(doc.ner)):
+                    x_temp.append(word2features(doc.ner,i))
+                for elem in doc.ner:
+                    y_temp.append(elem[2])
+                X.append(x_temp)
+                Y.append(y_temp)
+        return X,Y
 
     def __str__(self):
         return str(self._obj)
 
 p = Parser()
+p.decode_doc("test.json")
+doc=p.docs[0]
+# true labels 
+ner = doc.ner
+documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
 
+y_labels = [elem[2] for elem in ner]
 load = True
 
 if load == True:
     obj=pickle.load(open("model.pickle",'rb'))
-    text = "Hypothesis of a potential BrainBiota and its relation to CNS autoimmune inflammation, eat by rodents and used by antidepressants."
+    text = "(1) Background: studies have shown that some patients experience mental deterioration after bariatric surgery. (2) Methods: We examined whether the use of probiotics and improved eating habits can improve the mental health of people who suffered from mood disorders after bariatric surgery. We also analyzed patients' mental states, eating habits and microbiota. (3) Results: Depressive symptoms were observed in 45% of 200 bariatric patients. After 5 weeks, we noted an improvement in patients' mental functioning (reduction in BDI and HRSD), but it was not related to the probiotic used. The consumption of vegetables and whole grain cereals increased (DQI-I adequacy), the consumption of simple sugars and SFA decreased (moderation DQI-I), and the consumption of monounsaturated fatty acids increased it. In the feces of patients after RYGB, there was a significantly higher abundance of two members of the Muribaculaceae family, namely Veillonella and Roseburia, while those after SG had more Christensenellaceae R-7 group, Subdoligranulum, Oscillibacter, and UCG-005. (4) Conclusions: the noted differences in the composition of the gut microbiota (RYGB vs. SG) may be one of the determinants of the proper functioning of the gut-brain microbiota axis, although there is currently a need for further research into this topic using a larger group of patients and different probiotic doses."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
 
-    def print_state_features(state_features):
-        for (attr, label), weight in state_features:
-            print("%0.6f %-8s %s" % (weight, label, attr))
+    X,Y=p.prepare_crf(documents)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
+    y_predict=obj.predict(X_test)
+    print(sklearn_crfsuite.metrics.flat_classification_report(y_test,y_predict, labels=obj.classes_))
+    def print_state_features(state_features,label_filter=None):
+            states = []
+            for (attr, label), weight in state_features:
+                if label_filter is not None and label_filter == label:
+                    states.append("%0.6f %-8s %s" % (weight, label, attr))
+                elif label_filter is None:
+                    states.append("%0.6f %-8s %s" % (weight, label, attr))
+            return  states
+    
+    feat = Counter(obj.state_features_).most_common()
+    sent_feat=sent2features(words)
+    
+    # explain(sent_feat,["O","microbiome"])
 
-    print("Top positive:")
-    print_state_features(Counter(obj.state_features_).most_common(30))
-
-    print("\nTop negative:")
-    print_state_features(Counter(obj.state_features_).most_common()[-30:])
-    feat = obj.state_features_
-    sorted=dict(sorted(feat.items(),key=lambda item: item[1]))
-    #print(sorted)
-    print(sent2features(words))
-    print(obj.predict([sent2features(words)]))
+    prediction = obj.predict([sent2features(words)])
+    for token,label in zip(tokens,prediction[0]):
+        if label != 'O':
+            print(token,label)
+    # print(obj.predict_marginals([sent2features(words)]))
 else:
-    documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
-    X = []
-    Y = []
-    for docpath in documents:
-        p.decode_doc(docpath)
-        for doc in p.docs:
-            x_temp = []
-            y_temp = []
-            for i in range(0,len(doc.ner)):
-                x_temp.append(word2features(doc.ner,i))
-            for elem in doc.ner:
-                y_temp.append(elem[2])
-            X.append(x_temp)
-            Y.append(y_temp)
+    X,Y = p.prepare_crf(documents)
 
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
 
     crf = sklearn_crfsuite.CRF(algorithm='lbfgs',
                             c1=0.1,
                             c2=0.1,
-                            max_iterations=100,
+                            #max_iterations=30,
                             # min_freq=30,
                             all_possible_transitions=True,
                             verbose=True)
 
     crf.fit(X_train, y_train)
-
-    pickle.dump(crf,open("model.pickle",'wb+'))
-    text = "Hypothesis of a potential BrainBiota and its relation to CNS autoimmune inflammation."
+    
+    pickle.dump(crf,open("model-new.pickle",'wb+'))
+    text = "Hypothesis of a potential gut microbiota and its relation to CNS autoimmune inflammation."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
 
