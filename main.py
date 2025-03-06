@@ -215,6 +215,12 @@ class Parser:
             # At the end of the document parsing add it to the docs list
             self.docs.append(d)
     def prepare_crf(self,documents):
+        """
+        Function that gets documents and returns X,Y where X is a list of dictionary of features, Y is the label of the token
+        ## Return:
+        - X List of Dict regarding current documents 
+        - Y List of strings, labels of documents
+        """
         X = []
         Y = []
         for docpath in documents:
@@ -234,13 +240,13 @@ class Parser:
         return str(self._obj)
 
 p = Parser()
-p.decode_doc("test.json")
-doc=p.docs[0]
+#p.decode_doc("test.json")
+#doc=p.docs[0]
 # true labels 
-ner = doc.ner
-documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
-
-y_labels = [elem[2] for elem in ner]
+#ner = doc.ner
+#documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
+documents = [r"data\Annotations\Dev\json_format\dev.json"]
+#y_labels = [elem[2] for elem in ner]
 load = True
 
 if load == True:
@@ -250,9 +256,9 @@ if load == True:
     words = nltk.pos_tag(tokens)
 
     X,Y=p.prepare_crf(documents)
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
-    y_predict=obj.predict(X_test)
-    print(sklearn_crfsuite.metrics.flat_classification_report(y_test,y_predict, labels=obj.classes_))
+    #X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
+    y_predict=obj.predict(X)
+    print(sklearn_crfsuite.metrics.flat_accuracy_score(Y,y_predict))
     def print_state_features(state_features,label_filter=None):
             states = []
             for (attr, label), weight in state_features:
