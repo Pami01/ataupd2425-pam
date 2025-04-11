@@ -9,9 +9,78 @@ from  collections import Counter
 import matplotlib.pyplot as plt
 import sklearn.metrics
 import sklearn_crfsuite.metrics 
+from sklearn.decomposition import IncrementalPCA    # inital reduction
+from sklearn.manifold import TSNE                   # final reduction
 
 entity_labels = ["O","anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
 locations = ["title","abstract"]
+documents_dev = [r"data\Annotations\Dev\json_format\dev.json"]
+documents_train = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
+
+
+def reduce_dimensions(model):
+    num_dimensions = 2  # final num dimensions (2D, 3D, etc)
+
+    # extract the words & their vectors, as numpy arrays
+    vectors = np.asarray(model.wv.vectors)
+    labels = np.asarray(model.wv.index_to_key)  # fixed-width numpy strings
+
+    # reduce using t-SNE
+    tsne = TSNE(n_components=num_dimensions, random_state=0)
+    vectors = tsne.fit_transform(vectors)
+
+    x_vals = [v[0] for v in vectors]
+    y_vals = [v[1] for v in vectors]
+    return x_vals, y_vals, labels
+
+def plot_with_matplotlib(x_vals, y_vals, labels):
+    import matplotlib.pyplot as plt
+    import random
+
+    random.seed(0)
+
+    plt.figure(figsize=(12, 12))
+    plt.scatter(x_vals, y_vals)
+
+    #
+    # Label randomly subsampled 25 data points
+    #
+    indices = list(range(len(labels)))
+    #selected_indices = random.sample(indices, 25)
+    selected_indices = []
+
+    ## Select elements that are labeled as genes in ground trouth to verify if word2vec is reliable
+    for elem in genes_tokens:
+        try:
+            selected_indices.append(np.where(labels == elem)[0][0])
+        except:
+            print("Elem ",elem," not found in vocab")
+
+    for i in selected_indices:
+        plt.annotate(labels[i], (x_vals[i], y_vals[i]),color="red")
+    plt.show()
+
+def print_state_features(state_features,label_filter=None,attr_filter=None):
+            states = []
+            for (attr, label), weight in state_features:                    
+                if label_filter is not None and label_filter != label:
+                    continue
+                if attr_filter is not None and attr_filter not in attr:
+                    continue
+                states.append("%0.6f %-8s %s" % (weight, label, attr))
+            return  states
+
+def isGene(token:str):
+    if token.isnumeric():
+        return False
+    if token.isalpha():
+        return False
+    for c in token:
+        if c.isdigit():
+            continue
+        elif c.isalpha() and not c.isupper():
+            return False
+    return True
 
 def word2features(sent, i):
     word = sent[i][0]
@@ -27,6 +96,7 @@ def word2features(sent, i):
         'word.hasCapital()':word[0].capitalize() == word[0],
         'word.isdigit()': word.isdigit(),
         #'word.hasBioma()': "bio" in word,
+        'word.isGene()': isGene(word),
         'postag': postag,
         'postag[:2]': postag[:2],
     }
@@ -100,7 +170,8 @@ class Document:
     
     def ground_trouth(self):
         if len(self._entities) == 0:
-            raise Exception("Cannot call ground trouth in a document without parsed entities")        
+            raise Exception("Cannot call ground trouth in a document without parsed entities")    
+        print("Ground thruth of doc ",self._id)    
         i=0
         ner_tags = []
         for loc in locations:
@@ -196,6 +267,7 @@ class Parser:
         with open(filepath) as f:
             self._obj=json.load(f)
         # Analyzing parsed object
+        print("I will now add ",len(self._obj.keys())," documents")
         for key in self._obj.keys():
             # Parsing every doc in json file
             doc = self._obj[key]
@@ -214,28 +286,42 @@ class Parser:
             
             # At the end of the document parsing add it to the docs list
             self.docs.append(d)
+        
     def prepare_crf(self,documents):
         """
-        Function that gets documents and returns X,Y where X is a list of dictionary of features, Y is the label of the token
+        Function that gets documents paths and returns X,Y where X is a list of dictionary of features, Y is the label of the token
         ## Return:
-        - X List of Dict regarding current documents 
+        - X List of Dict, features, regarding current documents 
         - Y List of strings, labels of documents
         """
+        for doc in documents:
+            self.decode_doc(doc)
+        return self.engeneere_features()
+
+    def engeneere_features(self):
         X = []
         Y = []
-        for docpath in documents:
-            self.decode_doc(docpath)
-            for doc in p.docs:
-                x_temp = []
-                y_temp = []
-                for i in range(0,len(doc.ner)):
-                    x_temp.append(word2features(doc.ner,i))
-                for elem in doc.ner:
-                    y_temp.append(elem[2])
-                X.append(x_temp)
-                Y.append(y_temp)
+        for doc in p.docs:
+            x_temp = []
+            y_temp = []
+            for i in range(0,len(doc.ner)):
+                x_temp.append(word2features(doc.ner,i))
+            for elem in doc.ner:
+                y_temp.append(elem[2])
+            X.append(x_temp)
+            Y.append(y_temp)
         return X,Y
 
+    def prepare_train(self):
+        '''Resets class variable docs and replace it with train collection'''
+        self.docs = []
+        return self.prepare_crf(documents_train)
+    
+    def prepare_dev(self):
+        '''Resets class variable docs and replace it with dev collection'''
+        self.docs = []
+        return self.prepare_crf(documents_dev)
+    
     def __str__(self):
         return str(self._obj)
 
@@ -244,31 +330,55 @@ p = Parser()
 #doc=p.docs[0]
 # true labels 
 #ner = doc.ner
-#documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
-documents = [r"data\Annotations\Dev\json_format\dev.json"]
+documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
+#documents = [r"data\Annotations\Dev\json_format\dev.json"]
 #y_labels = [elem[2] for elem in ner]
 load = True
 
+import gensim
+import nltk
+
+for doc in documents:
+    p.decode_doc(doc)
+total = []
+genes_tokens = []
+for doc in p.docs:
+    curr_doc = []
+    for entity in doc.ner:
+        curr_doc.append(entity[0])
+        if entity[2] == "gene":
+            genes_tokens.append(entity[0])
+    total.append(curr_doc)
+word2vec = gensim.models.Word2Vec(total, min_count=1)
+
+print(word2vec.wv.most_similar(positive=["gene"],topn=3))
+
+# x_vals, y_vals, labels = reduce_dimensions(word2vec)
+
+# plot_with_matplotlib(x_vals, y_vals, labels)
+
 if load == True:
-    obj=pickle.load(open("model.pickle",'rb'))
+    obj=pickle.load(open("model-new.pickle",'rb'))
     text = "(1) Background: studies have shown that some patients experience mental deterioration after bariatric surgery. (2) Methods: We examined whether the use of probiotics and improved eating habits can improve the mental health of people who suffered from mood disorders after bariatric surgery. We also analyzed patients' mental states, eating habits and microbiota. (3) Results: Depressive symptoms were observed in 45% of 200 bariatric patients. After 5 weeks, we noted an improvement in patients' mental functioning (reduction in BDI and HRSD), but it was not related to the probiotic used. The consumption of vegetables and whole grain cereals increased (DQI-I adequacy), the consumption of simple sugars and SFA decreased (moderation DQI-I), and the consumption of monounsaturated fatty acids increased it. In the feces of patients after RYGB, there was a significantly higher abundance of two members of the Muribaculaceae family, namely Veillonella and Roseburia, while those after SG had more Christensenellaceae R-7 group, Subdoligranulum, Oscillibacter, and UCG-005. (4) Conclusions: the noted differences in the composition of the gut microbiota (RYGB vs. SG) may be one of the determinants of the proper functioning of the gut-brain microbiota axis, although there is currently a need for further research into this topic using a larger group of patients and different probiotic doses."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
 
-    X,Y=p.prepare_crf(documents)
+    #Test training word2vec
+    X,Y=p.prepare_dev()
     #X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
     y_predict=obj.predict(X)
-    print(sklearn_crfsuite.metrics.flat_accuracy_score(Y,y_predict))
-    def print_state_features(state_features,label_filter=None):
-            states = []
-            for (attr, label), weight in state_features:
-                if label_filter is not None and label_filter == label:
-                    states.append("%0.6f %-8s %s" % (weight, label, attr))
-                elif label_filter is None:
-                    states.append("%0.6f %-8s %s" % (weight, label, attr))
-            return  states
+    
+    for x,y,y_real in zip(X,y_predict,Y):
+        for elem_x,predicted_label,real_label in zip(x,y,y_real):
+            if predicted_label == "gene":
+                print(elem_x['word.lower()']," ",predicted_label,real_label,"\n")
+    print(sklearn_crfsuite.metrics.flat_classification_report(Y,y_predict))
+    
     
     feat = Counter(obj.state_features_).most_common()
+    states = print_state_features(feat,attr_filter="isGene")[:10]
+    for state in states:
+        print(state)
     sent_feat=sent2features(words)
     
     # explain(sent_feat,["O","microbiome"])
@@ -279,7 +389,7 @@ if load == True:
             print(token,label)
     # print(obj.predict_marginals([sent2features(words)]))
 else:
-    X,Y = p.prepare_crf(documents)
+    X,Y = p.prepare_train()
 
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
 
@@ -306,3 +416,4 @@ else:
     feat=crf.state_features_
     sorted=dict(sorted(feat.items(),key=lambda item: item[1]))
     print(sorted)
+
