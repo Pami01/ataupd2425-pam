@@ -11,12 +11,13 @@ import sklearn.metrics
 import sklearn_crfsuite.metrics 
 from sklearn.decomposition import IncrementalPCA    # inital reduction
 from sklearn.manifold import TSNE                   # final reduction
+from nltk.corpus import wordnet as wn
 
 entity_labels = ["O","anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
 locations = ["title","abstract"]
 documents_dev = [r"data\Annotations\Dev\json_format\dev.json"]
 documents_train = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
-
+fastText = None
 
 def reduce_dimensions(model):
     num_dimensions = 2  # final num dimensions (2D, 3D, etc)
@@ -49,7 +50,7 @@ def plot_with_matplotlib(x_vals, y_vals, labels):
     #selected_indices = random.sample(indices, 25)
     selected_indices = []
 
-    ## Select elements that are labeled as genes in ground trouth to verify if word2vec is reliable
+    ## Select elements that are labeled as genes in ground trouth to verify if fastText is reliable
     for elem in genes_tokens:
         try:
             selected_indices.append(np.where(labels == elem)[0][0])
@@ -82,10 +83,12 @@ def isGene(token:str):
             return False
     return True
 
+    
 def word2features(sent, i):
     word = sent[i][0]
     postag = sent[i][1]
-
+    # if fastText == None:
+    #     raise Exception("No fastText")
     features = {
         'bias': 1.0,
         'word.lower()': word.lower(),
@@ -99,7 +102,14 @@ def word2features(sent, i):
         'word.isGene()': isGene(word),
         'postag': postag,
         'postag[:2]': postag[:2],
+        'word.length()': len(word),
+        'word.pos()':i,
     }
+    # Add fasttext representation of word
+    # for j in range(0,100):
+    #     features.update({
+    #         f'{j}:vec_fastText:':fastText.wv.get_vector(word)[j]
+    #     })
     if i > 0:
         word1 = sent[i-1][0]
         postag1 = sent[i-1][1]
@@ -123,6 +133,8 @@ def word2features(sent, i):
             '+1:postag': postag1,
             '+1:postag[:2]': postag1[:2],
         })
+    # if i > 0 and i < len(sent)-1:
+    #     features.update({'-1,+1:fastText()': fastText.wv.most_similar(positive=[sent[i-1][0],sent[i+1][0]],topn=1)[0][0]})
     else:
         features['EOS'] = True
 
@@ -338,32 +350,31 @@ load = True
 import gensim
 import nltk
 
-for doc in documents:
-    p.decode_doc(doc)
-total = []
-genes_tokens = []
-for doc in p.docs:
-    curr_doc = []
-    for entity in doc.ner:
-        curr_doc.append(entity[0])
-        if entity[2] == "gene":
-            genes_tokens.append(entity[0])
-    total.append(curr_doc)
-word2vec = gensim.models.Word2Vec(total, min_count=1)
-
-print(word2vec.wv.most_similar(positive=["gene"],topn=3))
+# for doc in documents:
+#     p.decode_doc(doc)
+# total = []
+# genes_tokens = []
+# for doc in p.docs:
+#     curr_doc = []
+#     for entity in doc.ner:
+#         curr_doc.append(entity[0])
+#         if entity[2] == "gene":
+#             genes_tokens.append(entity[0])
+#     total.append(curr_doc)
+# fastText = gensim.models.FastText(total,vector_size=100,sg=1)
+# print(fastText.wv.most_similar(positive=["gene"],topn=3))
 
 # x_vals, y_vals, labels = reduce_dimensions(word2vec)
 
 # plot_with_matplotlib(x_vals, y_vals, labels)
-
+platinum = [r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json"]
+gold = [r"data\Annotations\Train\gold_quality\json_format\train_gold.json"]
 if load == True:
-    obj=pickle.load(open("model-new.pickle",'rb'))
+    obj=pickle.load(open("model-len-pos.pickle",'rb'))
     text = "(1) Background: studies have shown that some patients experience mental deterioration after bariatric surgery. (2) Methods: We examined whether the use of probiotics and improved eating habits can improve the mental health of people who suffered from mood disorders after bariatric surgery. We also analyzed patients' mental states, eating habits and microbiota. (3) Results: Depressive symptoms were observed in 45% of 200 bariatric patients. After 5 weeks, we noted an improvement in patients' mental functioning (reduction in BDI and HRSD), but it was not related to the probiotic used. The consumption of vegetables and whole grain cereals increased (DQI-I adequacy), the consumption of simple sugars and SFA decreased (moderation DQI-I), and the consumption of monounsaturated fatty acids increased it. In the feces of patients after RYGB, there was a significantly higher abundance of two members of the Muribaculaceae family, namely Veillonella and Roseburia, while those after SG had more Christensenellaceae R-7 group, Subdoligranulum, Oscillibacter, and UCG-005. (4) Conclusions: the noted differences in the composition of the gut microbiota (RYGB vs. SG) may be one of the determinants of the proper functioning of the gut-brain microbiota axis, although there is currently a need for further research into this topic using a larger group of patients and different probiotic doses."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
 
-    #Test training word2vec
     X,Y=p.prepare_dev()
     #X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
     y_predict=obj.predict(X)
@@ -372,16 +383,21 @@ if load == True:
         for elem_x,predicted_label,real_label in zip(x,y,y_real):
             if predicted_label == "gene":
                 print(elem_x['word.lower()']," ",predicted_label,real_label,"\n")
-    print(sklearn_crfsuite.metrics.flat_classification_report(Y,y_predict))
+
+    averages=["micro","macro"]
+    for avg in averages:
+        print(f"Precision {avg}:{sklearn_crfsuite.metrics.flat_precision_score(Y,y_predict,average=avg)}")
+        print(f"Recall {avg}:{sklearn_crfsuite.metrics.flat_recall_score(Y,y_predict,average=avg)}")
+        print(f"F1-score {avg}:{sklearn_crfsuite.metrics.flat_f1_score(Y,y_predict,average=avg)}")
     
     
     feat = Counter(obj.state_features_).most_common()
-    states = print_state_features(feat,attr_filter="isGene")[:10]
+    states = print_state_features(feat,attr_filter="fastText()")[:50]
     for state in states:
         print(state)
     sent_feat=sent2features(words)
     
-    # explain(sent_feat,["O","microbiome"])
+    #explain(sent_feat,["O","microbiome"])
 
     prediction = obj.predict([sent2features(words)])
     for token,label in zip(tokens,prediction[0]):
@@ -403,7 +419,7 @@ else:
 
     crf.fit(X_train, y_train)
     
-    pickle.dump(crf,open("model-new.pickle",'wb+'))
+    pickle.dump(crf,open("model-len-pos.pickle",'wb+'))
     text = "Hypothesis of a potential gut microbiota and its relation to CNS autoimmune inflammation."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
