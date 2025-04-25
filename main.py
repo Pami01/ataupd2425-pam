@@ -220,7 +220,53 @@ class Document:
             self.ground_trouth()
         return self._ner
                 
+class PredictedDocument(Document):
+    from nltk.tokenize import TreebankWordTokenizer
+    def __init__(self,document:Document=None):
+        if document == None:
+            super().__init__()
+        else:
+            super().__init__(document._id,document.title,document.abstract,document._year,document._journal,document._authors)
+        self.pred_entities = []
 
+
+    def predict_entities(self,model):
+        raw_pred = []
+        tokenizer = nltk.tokenize.TreebankWordTokenizer()
+
+        for loc in locations:
+            if loc == "abstract":
+                text = self.abstract
+            else:
+                text = self.title
+            #Fix with treebank
+            tokenized=tokenizer.tokenize(text)
+            spans = tokenizer.span_tokenize(text)
+            to_analyze=nltk.pos_tag(tokenized)
+            x_features=sent2features(to_analyze)
+            curr_pred=model.predict([x_features])
+            start_span = -1
+            curr_pred = curr_pred[0]
+            last_pred = None
+            for token,span,pred in zip(tokenized,spans,curr_pred):
+                # Started to recognise a new entity
+                if  pred != 'O' and start_span == -1:
+                    start_span = span[0]
+                    last_pred = pred
+                if pred != 'O' and start_span != -1:
+                    end_span = span[1]
+                if pred == 'O' and start_span != -1:
+                    raw_pred.append(last_pred)
+                    self.pred_entities.append(Entity(start_span,end_span,loc,text[start_span:end_span],last_pred))
+                    start_span = -1
+                    last_pred = None
+                if pred == 'O' and start_span == -1:
+                    continue
+    def out_entities(self):
+        if len(self.pred_entities) == 0:
+            raise Exception(f"No entities found in doc {self._id}")
+        entities = [ent.to_dict() for ent in self.pred_entities]
+        return entities
     
 class Entity:
     locations = ["title","abstract"]
@@ -263,7 +309,8 @@ class Entity:
         self._label = label
     def __str__(self):
         return f"TextSpan:{self.text_span} --- Label:{self.label} --- Idxs :{self.start_idx}-{self.end_idx} -- Location:{self.location}"
-    
+    def to_dict(self):
+        return {'start_idx': self.start_idx, 'end_idx': self.end_idx-1, "location":self.location, "text_span":self.text_span, "label":self.label}
 class Parser:
     """Class used to parse .json files and get respective document and entities"""
     _obj = None
@@ -337,12 +384,28 @@ class Parser:
     def __str__(self):
         return str(self._obj)
 
+
+def performance_on_datasets(p:Parser,model,docs:list[str]):
+    p.docs = []
+    averages=["micro","macro"]
+    with open("perf.txt","w") as f:
+        for doc in docs:
+            X,Y = p.prepare_crf([doc])
+            y_predict=model.predict(X)
+            f.write(f"Performances on {doc}:\n")
+            for avg in averages:
+                f.write(f"Precision {avg}:{sklearn_crfsuite.metrics.flat_precision_score(Y,y_predict,average=avg)}\n")
+                f.write(f"Recall {avg}:{sklearn_crfsuite.metrics.flat_recall_score(Y,y_predict,average=avg)}\n")
+                f.write(f"F1-score {avg}:{sklearn_crfsuite.metrics.flat_f1_score(Y,y_predict,average=avg)}\n")
+            p.docs = []
+        
+
 p = Parser()
 #p.decode_doc("test.json")
 #doc=p.docs[0]
 # true labels 
 #ner = doc.ner
-documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
+documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json",r"data\Annotations\Dev\json_format\dev.json"]
 #documents = [r"data\Annotations\Dev\json_format\dev.json"]
 #y_labels = [elem[2] for elem in ner]
 load = True
@@ -397,13 +460,23 @@ if load == True:
         print(state)
     sent_feat=sent2features(words)
     
-    #explain(sent_feat,["O","microbiome"])
 
     prediction = obj.predict([sent2features(words)])
     for token,label in zip(tokens,prediction[0]):
         if label != 'O':
             print(token,label)
-    # print(obj.predict_marginals([sent2features(words)]))
+
+
+    #Evaluate performance of model in every corpora
+    #performance_on_datasets(p,obj,documents)
+    to_print = {}
+    for doc in p.docs:
+        pd=PredictedDocument(document=doc)
+        pd.predict_entities(obj)
+        curr_doc = {f"{doc._id}":{"entities":pd.out_entities()}}
+        to_print.update(curr_doc)
+    with open("out.json", "a") as f:
+        json.dump(to_print,f)
 else:
     X,Y = p.prepare_train()
 

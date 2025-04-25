@@ -1,3 +1,5 @@
 data/
 .vscode/
 test.json
+biobert*/
+wandb/
