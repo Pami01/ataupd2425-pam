@@ -3,3 +3,8 @@ data/
 test.json
 biobert*/
 wandb/
+saved*
+results/
+__pycache__/
+models/
+re_output/
