@@ -5,6 +5,7 @@ import sklearn_crfsuite.metrics
 from Logic import Parser, PredictedDocument, sent2features, word2features
 from sklearn.model_selection import train_test_split
 import json
+import nltk
 
 
 def print_state_features(state_features,label_filter=None,attr_filter=None):
@@ -45,8 +46,6 @@ documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.js
 #y_labels = [elem[2] for elem in ner]
 load = True
 
-import gensim
-import nltk
 
 # for doc in documents:
 #     p.decode_doc(doc)
@@ -73,7 +72,7 @@ if load == True:
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
 
-    X,Y=p.prepare_crf(platinum)
+    X,Y=p.prepare_dev()
     #X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
     y_predict=obj.predict(X)
     
