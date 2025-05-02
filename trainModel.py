@@ -8,6 +8,31 @@ import torch.nn as nn
 from collections import Counter
 import itertools
 
+def compute_metrics(p):
+    predictions, labels = p
+    predictions = predictions.argmax(-1)
+
+    true_labels = []
+    true_predictions = []
+
+    for pred, label in zip(predictions, labels):
+        current_labels = []
+        current_predictions = []
+
+        for p_i, l_i in zip(pred, label):
+            if l_i != -100:
+                current_labels.append(id_to_label[l_i])
+                current_predictions.append(id_to_label[p_i])
+
+        true_labels.append(current_labels)
+        true_predictions.append(current_predictions)
+    return {
+        "precision": precision_score(true_labels, true_predictions),
+        "recall": recall_score(true_labels, true_predictions),
+        "f1": f1_score(true_labels, true_predictions),
+        "cr": classification_report(true_labels,true_predictions),
+    }
+
 class WeightedTokenTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -34,9 +59,10 @@ class WeightedTokenTrainer(Trainer):
 
 
 # 1. Imposta modello e tokenizer
-model_name = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-
+model_name = "numind/NuNER-v2.0"
+#tokenizer = AutoTokenizer.from_pretrained(model_name)
+#NuNEr2.0
+tokenizer = AutoTokenizer.from_pretrained(model_name,add_prefix_space=True)
 
 # 2. Label Mapping
 labels_list = ["O"]
@@ -66,11 +92,11 @@ total = sum(label_counts.values())
 for label in labels_list:
     class_weights.append(total/label_counts[label]) 
 # Split automatico 80% train, 20% validation
-# dataset = dataset.train_test_split(test_size=0.01, seed=42)
+dataset = dataset.train_test_split(test_size=0.01, seed=42)
 
-# train_dataset = dataset["train"]
+train_dataset = dataset["train"]
 # # train_dataset = dataset
-# val_dataset = dataset["test"]
+val_dataset = dataset["test"]
 
 # 4. Funzione di preprocessamento
 def preprocess(example):
@@ -98,7 +124,8 @@ def preprocess(example):
     return tokenized_inputs
 
 # 5. Applica preprocessamento
-train_dataset = dataset.map(preprocess)
+train_dataset = train_dataset.map(preprocess)
+val_dataset= val_dataset.map(preprocess)
 
 
 epochs = [10,2,2]
@@ -121,6 +148,8 @@ for epoch in epochs:
         output_dir="./results",
         num_train_epochs=epoch,
         per_device_train_batch_size=8,
+        eval_steps=3,
+        evaluation_strategy="steps",
         logging_dir="./logs",
         logging_steps=1,
         save_steps=500,
@@ -134,9 +163,11 @@ for epoch in epochs:
         model=model,
         args=training_args,
         train_dataset=train_dataset,
+        eval_dataset=val_dataset,
         data_collator=data_collator,
         tokenizer=tokenizer,
-        class_weights=class_weights
+        class_weights=class_weights,
+        compute_metrics=compute_metrics
     )
 
     # 10. Inizia il training
