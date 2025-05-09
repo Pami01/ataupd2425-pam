@@ -3,48 +3,90 @@ from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 import torch
 from sklearn.model_selection import train_test_split
-
+import random 
 MODEL_NAME = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"
-LABELS = ["influence", "is linked to", "target", "located in","impact","change abundance","change effect","used by","affect","part of","interact","produced by","strike","change expression","administered","is a","compared to"]  # <-- modifica in base al tuo dataset
+LABELS = ["no relation","influence", "is linked to", "target", "located in","impact","change abundance","change effect","used by","affect","part of","interact","produced by","strike","change expression","administered","is a","compared to"]  # <-- modifica in base al tuo dataset
 label2id = {label: i for i, label in enumerate(LABELS)}
 id2label = {i: label for label, i in label2id.items()}
 
 # Load data
-with open(r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Dev\json_format\dev.json") as f:
-    raw_data = json.load(f)
+dataset = []
+norel = []
+TRAIN_PATH = [r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Dev\json_format\dev.json",r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
 
-examples = []
+# FILES_PATH = [r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Dev\json_format\dev.json",]
+for file in TRAIN_PATH:
+    with open(file,"r") as f:
+        raw_data = json.load(f)
+    # Add marker to text for training 
+    # Raw data is key - value where key is document number
+    for item in raw_data.keys():
+        # Effective document info
+        item = raw_data[item]
+        # Metadata of document
+        metadata = item["metadata"]
+        relations = []
+        #Add real relations, labeled and precise
+        for rel in item["relations"]:
+            loc = rel["subject_location"]
+            text = metadata[loc]
+            s_start, s_end = rel["subject_start_idx"], rel["subject_end_idx"]+1
+            o_start, o_end = rel["object_start_idx"], rel["object_end_idx"]+1
+            label = rel["predicate"] if rel["predicate"] in LABELS else "ERROR"
+            
+            relations.append({"loc":loc,"s_start":s_start, "s_end":s_end,"o_start":o_start, "o_end":o_end})
 
-# Add marker to text for training 
-# Raw data is key - value where key is document number
-for item in raw_data.keys():
-    # Effective document info
-    item = raw_data[item]
-    # Metadata of document
-    metadata = item["metadata"]
-    for rel in item["relations"]:
-        loc = rel["subject_location"]
-        text = metadata[loc]
-        s_start, s_end = rel["subject_start_idx"], rel["subject_end_idx"]+1
-        o_start, o_end = rel["object_start_idx"], rel["object_end_idx"]+1
-        label = rel["predicate"] if rel["predicate"] in LABELS else "no_relation"
+            if s_start < o_start:
+                marked_text = (
+                    text[:s_start] + "[E1]" + text[s_start:s_end] + "[/E1]" +
+                    text[s_end:o_start] + "[E2]" + text[o_start:o_end] + "[/E2]" +
+                    text[o_end:]
+                )
+            else:
+                marked_text = (
+                    text[:o_start] + "[E2]" + text[o_start:o_end] + "[/E2]" +
+                    text[o_end:s_start] + "[E1]" + text[s_start:s_end] + "[/E1]" +
+                    text[s_end:]
+                )
+
+            dataset.append({"text": marked_text, "label": label2id[label]})
         
-        if s_start < o_start:
-            marked_text = (
-                text[:s_start] + "[E1]" + text[s_start:s_end] + "[/E1]" +
-                text[s_end:o_start] + "[E2]" + text[o_start:o_end] + "[/E2]" +
-                text[o_end:]
-            )
-        else:
-            marked_text = (
-                text[:o_start] + "[E2]" + text[o_start:o_end] + "[/E2]" +
-                text[o_end:s_start] + "[E1]" + text[s_start:s_end] + "[/E1]" +
-                text[s_end:]
-            )
+        #Now add noisy ones, combining entities with no relations between them
+        entities = item["entities"]
+        for i, subj in enumerate(entities):
+            for j, obj in enumerate(entities):
+                if i == j:
+                    continue
 
-        examples.append({"text": marked_text, "label": label2id[label]})
+                loc_subj = subj["location"]
+                loc_obj = obj["location"]
+                if loc_subj != loc_obj:
+                    continue
+                s_start, s_end = subj["start_idx"], subj["end_idx"]+1
+                o_start, o_end = obj["start_idx"], obj["end_idx"]+1
 
-train_data, val_data = train_test_split(examples, test_size=0.1, random_state=42)
+                check = {"loc":loc,"s_start":s_start, "s_end":s_end,"o_start":o_start, "o_end":o_end}
+
+                if check in relations:
+                    continue
+                # Add marker into text
+                if s_start < o_start:
+                    marked_text = f"{text[:s_start]}[E1]{text[s_start:s_end]}[/E1]{text[s_end:o_start]}[E2]{text[o_start:o_end]}[/E2]{text[o_end:]}"
+                else:
+                    marked_text = f"{text[:o_start]}[E2]{text[o_start:o_end]}[/E2]{text[o_end:s_start]}[E1]{text[s_start:s_end]}[/E1]{text[s_end:]}"
+
+                label = "no relation"
+                #If relation is not exhisting, add this to a list
+                norel.append({"text": marked_text, "label": label2id[label]})
+
+# NEGATIVE SAMPLING (SMART)
+#Get number of real relations and proportionally get a no relation
+propNumber = 2
+rLen = len(dataset)
+#Extend the dataset a sample from the norel proportional to propNumber and rLen
+dataset.extend(random.sample(norel,propNumber*rLen))
+            
+train_data, val_data = train_test_split(dataset, test_size=0.1, random_state=42)
 dataset = Dataset.from_list(train_data)
 val_dataset = Dataset.from_list(val_data)
 
@@ -71,9 +113,10 @@ training_args = TrainingArguments(
     output_dir="./re_output",
     evaluation_strategy="epoch",
     save_strategy="epoch",
-    logging_strategy="epoch",
-    num_train_epochs=3,
-    per_device_train_batch_size=8,
+    logging_strategy="steps",
+    logging_steps=10,
+    num_train_epochs=10,
+    per_device_train_batch_size=16,
     per_device_eval_batch_size=8,
     learning_rate=5e-5,
     weight_decay=0.01,
@@ -99,3 +142,7 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+model_name = f"RE-BiomedNLP-2NoRel-5epoch"
+model.save_pretrained(model_name)
+tokenizer.save_pretrained(model_name)

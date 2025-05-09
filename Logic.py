@@ -16,13 +16,11 @@ from nltk.corpus import wordnet as wn
 entity_labels = ["O","anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]
 locations = ["title","abstract"]
 documents_dev = [r"data\Annotations\Dev\json_format\dev.json"]
-documents_train = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json",r"data\Annotations\Dev\json_format\dev.json"]
+documents_train = [r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
 fastText = None
-
+special_chars = [",",".",";",":","!","?"]
 def isGene(token:str):
-    if token.isnumeric():
-        return False
-    if token.isalpha():
+    if token.isalnum():
         return False
     for c in token:
         if c.isdigit():
@@ -38,7 +36,6 @@ def word2features(sent, i):
     # if fastText == None:
     #     raise Exception("No fastText")
     features = {
-        'bias': 1.0,
         'word.lower()': word.lower(),
         'word[-3:]': word[-3:],
         'word[-2:]': word[-2:],
@@ -46,7 +43,6 @@ def word2features(sent, i):
         'word.istitle()': word.istitle(),
         'word.hasCapital()':word[0].capitalize() == word[0],
         'word.isdigit()': word.isdigit(),
-        #'word.hasBioma()': "bio" in word,
         'word.isGene()': isGene(word),
         'postag': postag,
         'postag[:2]': postag[:2],
@@ -218,6 +214,9 @@ class PredictedDocument(Document):
                     end_span = span[1]
                 if start_span != -1 and "I-" not in pred:
                     raw_pred.append(last_pred)
+                    text_to_append = text[start_span:end_span]
+                    if text_to_append[-1] in special_chars:
+                        end_span-=1
                     self.pred_entities.append(Entity(start_span,end_span,loc,text[start_span:end_span],last_pred[2:]))
                     start_span = -1
                     last_pred = None
@@ -277,26 +276,49 @@ class Parser:
     """This variable shall contain all the parsed Documents using decode_doc()"""
     def __init__(self):
         pass
-    
-    def decode_doc(self,filepath):
+    def decode_val_doc(self,filepath):
         """
-        This function shall parse all the documents and put them inside Class variable
+        This function shall parse all the TEST documents and put them inside Class variable
         """
         with open(filepath) as f:
             self._obj=json.load(f)
         # Analyzing parsed object
-        print("I will now add ",len(self._obj.keys())," documents")
+        print("I will now add ",len(self._obj.keys()),"TEST documents")
         for key in self._obj.keys():
             # Parsing every doc in json file
             doc = self._obj[key]
             # Every bit of information about every single document
-            metadata = doc['metadata']
-            entities = doc['entities']
-            relations = doc['relations']
-            binary_tag = doc['binary_tag_based_relations']
-            ternary_tag = doc['ternary_tag_based_relations']
-            ternary_mention = doc['ternary_mention_based_relations']
+            title = doc['title']
+            abstract = doc['abstract']
+            year = doc['year']
+            journal = doc['journal']
+            author = doc['author']
             # Create document 
+            d = Document(key,title,abstract,year,journal,author)
+            # At the end of the document parsing add it to the docs list
+            self.docs.append(d)
+    def decode_doc(self,filepath):
+        """
+        This function shall parse all the TRAIN documents and put them inside Class variable
+        """
+        with open(filepath) as f:
+            self._obj=json.load(f)
+        # Analyzing parsed object
+        print("I will now add ",len(self._obj.keys()),"TRAIN documents")
+        for key in self._obj.keys():
+            try:
+            # Parsing every doc in json file
+                doc = self._obj[key]
+                # Every bit of information about every single document
+                metadata = doc['metadata']
+                entities = doc['entities']
+                relations = doc['relations']
+                binary_tag = doc['binary_tag_based_relations']
+                ternary_tag = doc['ternary_tag_based_relations']
+                ternary_mention = doc['ternary_mention_based_relations']
+            except Exception as e:
+                print(f"Error parsing {filepath}, maybe wrong format file?: {str(e)}")
+                # Create document 
             d = Document(key,metadata['title'],metadata['abstract'],metadata['year'],metadata['journal'],metadata['author'])
             # Add entities to document
             for value in entities:

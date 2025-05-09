@@ -6,6 +6,11 @@ from Logic import Parser, PredictedDocument, sent2features, word2features
 from sklearn.model_selection import train_test_split
 import json
 import nltk
+from collections import Counter
+
+def print_transitions(trans_features):
+    for (label_from, label_to), weight in trans_features:
+        print("%-6s -> %-7s %0.6f" % (label_from, label_to, weight))
 
 
 def print_state_features(state_features,label_filter=None,attr_filter=None):
@@ -44,7 +49,7 @@ p = Parser()
 documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json",r"data\Annotations\Dev\json_format\dev.json"]
 #documents = [r"data\Annotations\Dev\json_format\dev.json"]
 #y_labels = [elem[2] for elem in ner]
-load = True
+load = False
 
 
 # for doc in documents:
@@ -113,6 +118,17 @@ if load == True:
         to_print.update(curr_doc)
     with open("out.json", "w") as f:
         json.dump(to_print,f)
+    print("Top likely transitions:")
+    print_transitions(Counter(obj.transition_features_).most_common(20))
+
+    print("\nTop unlikely transitions:")
+    print_transitions(Counter(obj.transition_features_).most_common()[-20:])
+
+    feat=obj.state_features_
+    sorted=dict(sorted(feat.items(),key=lambda item: item[1],reverse=True)[:20])
+    print("\nTop 20 features:")
+    for key,value in sorted.items():
+         print(key,value)
 else:
     X,Y = p.prepare_train()
 
@@ -128,7 +144,7 @@ else:
 
     crf.fit(X_train, y_train)
     
-    pickle.dump(crf,open("model-withB-I-OVERFIT.pickle",'wb+'))
+    pickle.dump(crf,open("model-withB-I-OVERFIT-NoDevBronze.pickle",'wb+'))
     text = "Hypothesis of a potential gut microbiota and its relation to CNS autoimmune inflammation."
     tokens = nltk.word_tokenize(text)
     words = nltk.pos_tag(tokens)
