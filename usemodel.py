@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModelForTokenClassification, Trainer, TrainingArguments, DataCollatorForTokenClassification
 from datasets import load_dataset
-from Logic import Entity, Document, PredictedDocument, Parser
+from Logic import Entity, Document, PredictedDocument, Parser, writeMETA
 import torch
 import json
 from transformers import pipeline
@@ -24,25 +24,14 @@ model = None
 tokenizer = None
 nlp = None
 
-def writeMETA(filepath,taskID,runID,training,preprocessing,tdu,dor):
-    with open(filepath,"w") as f:
-        out = f"""Team ID: ataupd2425-pam
-Task ID: {taskID}
-Run ID: {runID}
-Training: {training}
-PreProcessing: {preprocessing}
-Training data used: {tdu}
-Details of the run: {dor}
-https://github.com/Pami01/ataupd2425-pam
-"""    
-        f.write(out)
+
 def loadModel(model_name):
     global model
     global tokenizer
     global nlp
     print(f"Evaluating {model_name}")
-    model = AutoModelForTokenClassification.from_pretrained(f"{base_dir}/{model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(f"{base_dir}/{model_name}")
+    model = AutoModelForTokenClassification.from_pretrained(f"{model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(f"{model_name}")
     tokenizer.model_max_length=512
 
     # Crei la pipeline
@@ -51,7 +40,7 @@ def loadModel(model_name):
         model=model, 
         tokenizer=tokenizer, 
         aggregation_strategy="first",
-        device=0  # importante!
+        device=0
     )
 
 def predictDocs(p:Parser):
@@ -96,39 +85,40 @@ def dumpNER(pds):
         to_print.update(curr_doc)
     return to_print
 
-DOC_PATH = [r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Dev\json_format\dev.json"]
+DOC_PATH = [r"C:\Users\xLoll\Desktop\GutBrainIE_2025_Test_Data\articles_test.json"]
 # Read documents
 p = Parser()
 for path in DOC_PATH:
-    p.decode_doc(path)
+    p.decode_val_doc(path)
 
-base_dir = r"C:\Users\xLoll\Desktop\GutBrainIE2025\models_evaluate_dev"
-dirs=os.listdir(base_dir)
-# dirs = ["NuNerv2.0-10-CW-xtreme"]
+base_dir = ""
 model_name = "./BiomedNLP-PubMedBERT-base-uncased-abstract-12-CW-xtreme"
-# Carica
 runID = 0
 #NER TASK with BERT models
-for model_name in dirs:
+dirs = [r"./models/biobert-base-cased-v1.2-14-CW-xtreme",r"./models/biosyn-sapbert-bc2gn-8",r"./models/biosyn-sapbert-bc2gn-12",r"./models/saved_model",r"./models/NuNerv2.0-22-CW-xtreme",r"./models/scibert-47",r"./models/scibert-27"]
+for model_path in dirs:
     try:
         runID+=1
-        loadModel(model_name)
+        loadModel(model_path)
+        model_name = model_path[9:]
         # Use PredictedDocuments to add entities
         pds = predictDocs(p)
         # Print out for evaluation script!
         ner = dumpNER(pds)
+
+        current_dir_name = f"./delievery/ataupd2425-pam_T61_{runID}_{model_name}"
         try:
-            os.mkdir(f"./evaluation/ataupd2425-pam_T61_{runID}_{model_name}")
+            os.mkdir(current_dir_name)
         except Exception as e:
-            print(f"Something went wrong creating directory ./evaluation/ataupd2425-pam_T61_{runID}_{model_name}")    
-        with open(f"./evaluation/ataupd2425-pam_T61_{runID}_{model_name}/ataupd2425-pam_T61_{runID}_{model_name}.json", "w") as f:
+            print(f"Something went wrong creating directory {current_dir_name}")    
+        with open(f"{current_dir_name}/ataupd2425-pam_T61_{runID}_{model_name}.json", "w") as f:
                 # Dump file for evaluation script
                 json.dump(ner,f)
-        prec,recall,f1,mp,mr,mf=evaluate.eval_submission_6_1_NER(f"./evaluation/ataupd2425-pam_T61_{runID}_{model_name}/ataupd2425-pam_T61_{runID}_{model_name}.json")
-        with open("evaluate_performances.txt","a") as f:
-             f.write(f"{model_name}\n")
-             f.write(f"p:{prec},r:{recall},f1:{f1},micro p:{mp},micro r:{mr},micro f1:{mf}\n")
-        writeMETA(f"./evaluation/ataupd2425-pam_T61_{runID}_{model_name}/ataupd2425-pam_T61_{runID}_{model_name}.meta","T61",runID,f"Fine tuning using HuggingFace pipeline of {model_name}, usage of Custom Weights, inversionally proportional to number of weights (more loss to less frequent labels) ","Parsing of data in the datasets, conversion of every document entity into a list of tokens and labels","Platinum,Gold,Silver","TBD")        
+        # prec,recall,f1,mp,mr,mf=evaluate.eval_submission_6_1_NER(f"{current_dir_name}/ataupd2425-pam_T61_{runID}_{model_name}.json")
+        # with open("evaluate_performances.txt","a") as f:
+        #      f.write(f"{model_name}\n")
+        #      f.write(f"p:{prec},r:{recall},f1:{f1},micro p:{mp},micro r:{mr},micro f1:{mf}\n")
+        writeMETA(f"{current_dir_name}/ataupd2425-pam_T61_{runID}_{model_name}.meta","T61",runID,f"Fine tuning using HuggingFace pipeline of {model_name}, usage of Custom Weights, inversionally proportional to number of weights (more loss to less frequent labels) ","Parsing of data in the datasets, conversion of every document entity into a list of tokens and labels","Platinum,Gold,Silver,Bronze,Dev","TBD")        
         #CREATE ENTITIES WITH NER
         dump = {}
         for doc in pds:
@@ -136,18 +126,23 @@ for model_name in dirs:
             entities = doc.out_entities()
             doc_info = {"metadata":metadata,"entities":entities}
             dump.update({f"{doc._id}":doc_info})
-        with open(f"./evaluation/ataupd2425-pam_T61_{runID}_{model_name}/tempNER.json","w") as f:
+        with open(f"{current_dir_name}/tempNER.json","w") as f:
             json.dump(dump,f)            
     except Exception as e:
         print(f"Something went wrong with file {model_name}, {str(e)}")
 
 #RE Task 
-
-# RE = ["./RE-BiomedNLP-2NoRel-5epoch",]
-# for model in RE:
-#     runID += 1
-#     use_relation_extraction.loadModel(model)
-#     try:
-#         use_relation_extraction.print_RE(r"C:\Users\xLoll\Desktop\GutBrainIE2025\evaluation\ataupd2425-pam_T61_1_scibert-10\tempNER.json","./evaluation/RE",model[2:],runID)
-#     except Exception as e:
-#         print(f"Error printing RE {model}, {str(e)}")
+RE = ["./RE-BiomedNLP-1NoRel-1epoch-COMPLETE_DATASET","./RE-BiomedNLP-2NoRel-1epoch-COMPLETE_DATASET","./RE-BiomedNLP-3NoRel-1epoch-COMPLETE_DATASET"]
+#PATHS OF EXTRACTED NER 
+NER = []
+# for each model in RE
+runID = 0
+for model in RE:
+    # for each of the selected NER runs (different models)
+    for ner_run in NER:
+        use_relation_extraction.loadModel(model)
+        try:
+            use_relation_extraction.print_RE(ner_run,"./delievery",model[2:],runID)
+        except Exception as e:
+            print(f"Error printing RE {model}, {str(e)}")
+        runID += 1

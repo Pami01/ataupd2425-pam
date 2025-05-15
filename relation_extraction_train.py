@@ -4,6 +4,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trai
 import torch
 from sklearn.model_selection import train_test_split
 import random 
+import copy
 MODEL_NAME = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"
 LABELS = ["no relation","influence", "is linked to", "target", "located in","impact","change abundance","change effect","used by","affect","part of","interact","produced by","strike","change expression","administered","is a","compared to"]  # <-- modifica in base al tuo dataset
 label2id = {label: i for i, label in enumerate(LABELS)}
@@ -81,68 +82,88 @@ for file in TRAIN_PATH:
 
 # NEGATIVE SAMPLING (SMART)
 #Get number of real relations and proportionally get a no relation
-propNumber = 2
-rLen = len(dataset)
-#Extend the dataset a sample from the norel proportional to propNumber and rLen
-dataset.extend(random.sample(norel,propNumber*rLen))
-            
-train_data, val_data = train_test_split(dataset, test_size=0.1, random_state=42)
-dataset = Dataset.from_list(train_data)
-val_dataset = Dataset.from_list(val_data)
+base_dataset=copy.deepcopy(dataset)
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-tokenizer.add_special_tokens({"additional_special_tokens": ["[E1]", "[/E1]", "[E2]", "[/E2]"]})
+for propNumber in [1,2,3]:
+    # propNumber = 2
+    try:
+        dataset = []
+        dataset.extend(base_dataset)
+        rLen = len(dataset)
+        #Extend the dataset a sample from the norel proportional to propNumber and rLen
+        dataset.extend(random.sample(norel,propNumber*rLen))
+                    
+        train_data, val_data = train_test_split(dataset, test_size=0.1, random_state=42)
+        dataset = Dataset.from_list(train_data)
+        val_dataset = Dataset.from_list(val_data)
+    except Exception as e:
+        print(f"Dataset exception catched, aborted training {str(e)}")
+        continue
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tokenizer.add_special_tokens({"additional_special_tokens": ["[E1]", "[/E1]", "[E2]", "[/E2]"]})
+    except:
+        print("Problem loading tokenizer")
+        continue
 
-def tokenize(example):
-    return tokenizer(
-        example["text"],
-        truncation=True,
-        padding="max_length",
-        max_length=256
+    def tokenize(example):
+        return tokenizer(
+            example["text"],
+            truncation=True,
+            padding="max_length",
+            max_length=256
+        )
+    try:
+        dataset = dataset.map(tokenize)
+        val_dataset = val_dataset.map(tokenize)
+    except Exception as e:
+        print(f"Problem with preprocessing dataset {str(e)}")
+        continue
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME, num_labels=len(LABELS), id2label=id2label, label2id=label2id
+    )
+    model.resize_token_embeddings(len(tokenizer))
+
+    training_args = TrainingArguments(
+        output_dir="./re_output",
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        logging_strategy="steps",
+        logging_steps=10,
+        num_train_epochs=1,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=8,
+        learning_rate=5e-5,
+        weight_decay=0.01,
+        load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
+        report_to="none",
+        resume_from_checkpoint=True
     )
 
-dataset = dataset.map(tokenize)
-val_dataset = val_dataset.map(tokenize)
+    # Base metrics of steps in runs
+    def compute_metrics(p):
+        preds = p.predictions.argmax(-1)
+        labels = p.label_ids
+        acc = (preds == labels).mean()
+        return {"accuracy": acc}
 
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_NAME, num_labels=len(LABELS), id2label=id2label, label2id=label2id
-)
-model.resize_token_embeddings(len(tokenizer))
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset,
+        eval_dataset=val_dataset,
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics
+    )
+    for i in range(2):
+        try:
+            trainer.train()
+        except:
+            print("Problem with training")
+            continue
+        model_name = f"RE-BiomedNLP-{propNumber}NoRel-{i}epoch-COMPLETE_DATASET"
+        model.save_pretrained(model_name)
+        tokenizer.save_pretrained(model_name)
 
-training_args = TrainingArguments(
-    output_dir="./re_output",
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
-    logging_strategy="steps",
-    logging_steps=10,
-    num_train_epochs=10,
-    per_device_train_batch_size=16,
-    per_device_eval_batch_size=8,
-    learning_rate=5e-5,
-    weight_decay=0.01,
-    load_best_model_at_end=True,
-    metric_for_best_model="accuracy",
-    report_to="none"
-)
-
-# Base metrics of steps in runs
-def compute_metrics(p):
-    preds = p.predictions.argmax(-1)
-    labels = p.label_ids
-    acc = (preds == labels).mean()
-    return {"accuracy": acc}
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=dataset,
-    eval_dataset=val_dataset,
-    tokenizer=tokenizer,
-    compute_metrics=compute_metrics
-)
-
-trainer.train()
-
-model_name = f"RE-BiomedNLP-2NoRel-5epoch"
-model.save_pretrained(model_name)
-tokenizer.save_pretrained(model_name)

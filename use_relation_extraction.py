@@ -2,7 +2,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import json
 import os
-MODEL_PATH = "./RE-BiomedNLP-2NoRel-5epoch"
+from Logic import writeMETA
+MODEL_PATH = "./RE-BiomedNLP-2NoRel-1epoch-COMPLETE_DATASET"
 LABELS = ["no relation","influence", "is linked to", "target", "located in","impact","change abundance","change effect","used by","affect","part of","interact","produced by","strike","change expression","administered","is a","compared to"]
 label2id = {label: i for i, label in enumerate(LABELS)}
 id2label = {i: label for label, i in label2id.items()}
@@ -113,20 +114,27 @@ def print_RE(evaluate_path,out_base_path,model_name,id):
             ternary_tag.update({f"{elem}":{"ternary_tag_based_relations":predictions["ternary_tag_based_relations"]}})
             ternary_mention.update({f"{elem}":{"ternary_mention_based_relations":predictions["ternary_mention_based_relations"]}})
 
-    os.mkdir(f"{out_base_path}/ataupd2425-pam_T621_{id}_{model_name}")
-    with open(f"{out_base_path}/ataupd2425-pam_T621_{id}_{model_name}/ataupd2425-pam_T621_{id}_{model_name}.json", "w") as out:
+    current_dir = f"{out_base_path}/ataupd2425-pam_T621_{id}_{model_name}"
+    os.mkdir(current_dir)
+    with open(f"{current_dir}/ataupd2425-pam_T621_{id}_{model_name}.json", "w") as out:
         json.dump(binary, out, indent=2)
-    os.mkdir(f"{out_base_path}/ataupd2425-pam_T622_{id}_{model_name}")
-    with open(f"{out_base_path}/ataupd2425-pam_T622_{id}_{model_name}/ataupd2425-pam_T622_{id}_{model_name}.json", "w") as out:
+    writeMETA(f"{current_dir}/ataupd2425-pam_T621_{id}_{model_name}.meta","T621",id,f"Fine tuning of model {model_name} using HuggingFace pipeline",f"Dataset has been preprocessed and unraveled, each of the relation has been expanded into text and markers defining the two entities and the label describing their relationship, the entities has been extracted using {evaluate_path}","Platinum,Gold,Silver,Bronze,Dev","TBD")
+
+    current_dir = f"{out_base_path}/ataupd2425-pam_T622_{id}_{model_name}"
+    os.mkdir(current_dir)
+    with open(f"{current_dir}/ataupd2425-pam_T622_{id}_{model_name}.json", "w") as out:
         json.dump(ternary_tag, out, indent=2)
-    os.mkdir(f"{out_base_path}/ataupd2425-pam_T623_{id}_{model_name}")
-    with open(f"{out_base_path}/ataupd2425-pam_T623_{id}_{model_name}/ataupd2425-pam_T623_{id}_{model_name}.json", "w") as out:
+    writeMETA(f"{current_dir}/ataupd2425-pam_T622_{id}_{model_name}.meta","T622",id,f"Fine tuning of model {model_name} using HuggingFace pipeline",f"Dataset has been preprocessed and unraveled, each of the relation has been expanded into text and markers defining the two entities and the label describing their relationship, the entities has been extracted using {evaluate_path}","Platinum,Gold,Silver,Bronze,Dev","TBD")
+    current_dir = f"{out_base_path}/ataupd2425-pam_T623_{id}_{model_name}"
+    os.mkdir(current_dir)
+    with open(f"{current_dir}/ataupd2425-pam_T623_{id}_{model_name}.json", "w") as out:
         json.dump(ternary_mention, out, indent=2)
     print("Predictions saved in json files")
+    writeMETA(f"{current_dir}/ataupd2425-pam_T623_{id}_{model_name}.meta","T623",id,f"Fine tuning of model {model_name} using HuggingFace pipeline",f"Dataset has been preprocessed and unraveled, each of the relation has been expanded into text and markers defining the two entities and the label describing their relationship, the entities has been extracted using {evaluate_path}","Platinum,Gold,Silver,Bronze,Dev","TBD")
 
 if __name__ == "__main__":
     loadModel(MODEL_PATH)
     try:
-        print_RE(path,"Test")
+        print_RE(path,"./","TEST",1)
     except Exception as e:
         print(f"Something went wrong with file {MODEL_PATH}, {str(e)}")

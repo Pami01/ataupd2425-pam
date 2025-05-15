@@ -1,6 +1,6 @@
 data/
 .vscode/
-test.json
+*.json
 biobert*/
 wandb/
 saved*
@@ -8,3 +8,5 @@ results/
 __pycache__/
 models/
 re_output/
+delievery/
+evaluation/
