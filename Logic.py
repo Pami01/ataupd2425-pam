@@ -19,6 +19,19 @@ documents_dev = [r"data\Annotations\Dev\json_format\dev.json"]
 documents_train = [r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json"]
 fastText = None
 special_chars = [",",".",";",":","!","?"]
+def writeMETA(filepath,taskID,runID,training,preprocessing,tdu,dor):
+    with open(filepath,"w") as f:
+        out = f"""Team ID: ataupd2425-pam
+Task ID: {taskID}
+Run ID: {runID}
+Training: {training}
+PreProcessing: {preprocessing}
+Training data used: {tdu}
+Details of the run: {dor}
+https://github.com/Pami01/ataupd2425-pam
+"""    
+        f.write(out)
+
 def isGene(token:str):
     if token.isalnum():
         return False
