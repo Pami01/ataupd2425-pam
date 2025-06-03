@@ -79,12 +79,7 @@ def predict_relations(text, entities):
         "ternary_mention_based_relations": results_ternary_mention
     }
 
-# TODO Fix main, predict effectively
-dump = {}
-binary = {}
-ternary_tag = {}
-ternary_mention = {}
-
+# Change this PATH with the file with docs and entities
 path = r"C:\Users\xLoll\Desktop\GutBrainIE2025\data\Annotations\Dev\json_format\dev.json"
 
 
@@ -99,6 +94,9 @@ def print_RE(evaluate_path,out_base_path,model_name,id):
     Returns:
         None: nothing
     '''
+    binary = {}
+    ternary_tag = {}
+    ternary_mention = {}
     with open(evaluate_path,"r") as f:
         data = json.load(f) 
     for elem in data.keys():

@@ -1,16 +1,8 @@
 import json
 import nltk 
-from sklearn.model_selection import train_test_split
-import numpy as np
 import sklearn_crfsuite
-import pickle
-from sklearn_crfsuite import metrics
-from  collections import Counter
 import matplotlib.pyplot as plt
-import sklearn.metrics
 import sklearn_crfsuite.metrics 
-from sklearn.decomposition import IncrementalPCA    # inital reduction
-from sklearn.manifold import TSNE                   # final reduction
 from nltk.corpus import wordnet as wn
 
 entity_labels = ["O","anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]

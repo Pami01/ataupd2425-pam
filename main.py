@@ -40,11 +40,13 @@ def explain(sent_feat,ents_labels):
 
 #If load = True, the program will load the pickle file and predict labels
 load = True
+#filname that will be used for outputting prediction of NER
+fileDump = "out.json"
 
-fileDump = "ataupd2425-pam_T61_10_customCRF.json"
 p = Parser()
-
+#All documents path
 documents = [r"data\Annotations\Train\bronze_quality\json_format\train_bronze.json",r"data\Annotations\Train\gold_quality\json_format\train_gold.json",r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json",r"data\Annotations\Train\silver_quality\json_format\train_silver.json",r"data\Annotations\Dev\json_format\dev.json"]
+dev = r"data\Annotations\Dev\json_format\dev.json"
 platinum = [r"data\Annotations\Train\platinum_quality\json_format\train_platinum.json"]
 gold = [r"data\Annotations\Train\gold_quality\json_format\train_gold.json"]
 test_set = r"C:\Users\xLoll\Desktop\GutBrainIE_2025_Test_Data\articles_test.json"
@@ -52,7 +54,7 @@ if load == True:
     obj=pickle.load(open("model-withB-I.pickle",'rb'))
 
     #Watch out using decode_val_doc or decode_doc, see docs (different format of docs needs different functions)
-    p.decode_val_doc(test_set)
+    p.decode_doc(dev)
     
     to_print = {}
     for doc in p.docs:

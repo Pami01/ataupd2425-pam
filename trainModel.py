@@ -9,7 +9,6 @@ from collections import Counter
 import itertools
 import torch
 
-# 4. Funzione di preprocessamento
 def preprocess(example):
     tokenized_inputs = tokenizer(
         example["tokens"],
@@ -88,20 +87,13 @@ class WeightedTokenTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
-
-
-# 1. Imposta modello e tokenizer
-#model_name = "allenai/scibert_scivocab_uncased"
-#tokenizer = AutoTokenizer.from_pretrained(model_name)
-#NuNEr2.0
+#starting models names that will be used for fine tuning
 model_names = ["dmis-lab/biosyn-sapbert-bc2gn","microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract","numind/NuNER-v2.0"]
 for load_model in model_names:
     tokenizer = AutoTokenizer.from_pretrained(load_model,add_prefix_space=True)
 
-    # 2. Label Mapping
     labels_list = ["O"]
 
-    #labels_list = ["O", "B-Drug", "I-Drug", "B-Disease", "I-Disease", "B-Gene"]
     class_weights = []
     for elem in ["anatomical location","animal","biomedical technique","bacteria","chemical","dietary supplement","DDF","drug","food","gene","human","microbiome","statistical technique"]:
         
@@ -112,38 +104,34 @@ for load_model in model_names:
     label_to_id = {label: i for i, label in enumerate(labels_list)}
     id_to_label = {i: label for label, i in label_to_id.items()}
 
-    # 3. Carica dataset JSON
+    #Here the dataset produced with jsonToDataset.py will be loaded
     dataset = load_dataset("json", data_files="dataset-noDevBronze.json", split="train")
 
-
-    # Flatten tutte le etichette token-level in un'unica lista
     all_labels = list(itertools.chain.from_iterable(dataset["labels"]))
 
-    # Conta le frequenze
+    # CustomWeight logic
     label_counts = Counter(all_labels)
     total = sum(label_counts.values())
     # Add weights dinamcally depending on dataset
     for label in labels_list:
         class_weights.append(total/label_counts[label]) 
-    # Split automatico 80% train, 20% validation
+    
     dataset = dataset.train_test_split(test_size=0.01, seed=42)
 
     train_dataset = dataset["train"]
     # # train_dataset = dataset
     val_dataset = dataset["test"]
 
-
-    # 5. Applica preprocessamento
     train_dataset = train_dataset.map(preprocess)
     val_dataset= val_dataset.map(preprocess)
 
     model_name = load_model
     
+    # Change this values to change number of epochs of training, every entry in list is a new iteration of training starting from the previous 
     epochs = [20,10,10]
     comulative_epoch = 0
     for epoch in epochs:
         comulative_epoch += epoch 
-        # 6. Prepara modello
         model = AutoModelForTokenClassification.from_pretrained(
             model_name,
             num_labels=len(labels_list),
@@ -152,14 +140,10 @@ for load_model in model_names:
         )
         print(model)
 
-    # Estrai il numero di layer dell'encoder (per BERT è in 'encoder.layer')
-        # num_layers = len(model.roberta.encoder.layer)
-        # print(f"Il numero di layer nel modello è: {num_layers}")
-        # freeze_layers_roberta(model,num_layers/2)
-        # 7. Data Collator per il padding automatico delle labels
+   
         data_collator = DataCollatorForTokenClassification(tokenizer)
 
-    # 8. Parametri di training
+   
         training_args = TrainingArguments(
             output_dir="./results",
             num_train_epochs=epoch,
@@ -182,7 +166,7 @@ for load_model in model_names:
         )
 
         
-        # 9. Trainer Huggingface
+
         trainer = WeightedTokenTrainer(
             model=model,
             args=training_args,
@@ -194,7 +178,6 @@ for load_model in model_names:
             compute_metrics=compute_metrics
         )
 
-        # 10. Inizia il training
         trainer.train()
 
         model_name = f"{load_model}-{comulative_epoch}-CW"
